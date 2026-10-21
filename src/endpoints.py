@@ -532,22 +532,14 @@ async def extract_simple(
 
     if query.isdigit():
         anilist_id = int(query)
-
-        gql = """
-        query ($id: Int) {
-            Media(id: $id, type: ANIME) {
-                id
-                format
-            }
-        }
-        """
-        media_data = await anilist_query(gql, {"id": anilist_id})
-        media = media_data.get("Media")
-        if not media:
-            raise HTTPException(status_code=404, detail="anime not found")
-
-        if media.get("format") == "MOVIE":
-            episode = 1
+        # Soft identity: do not hard-fail if AniList is down
+        try:
+            from src.providers._media import get_media
+            media = await get_media(anilist_id)
+            if str((media or {}).get("format") or "").upper() == "MOVIE":
+                episode = 1
+        except Exception:
+            pass  # providers still race with cached / Kitsu / stub titles
     else:
 
         gql = f"""
