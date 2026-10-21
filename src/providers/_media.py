@@ -6,41 +6,6 @@ from src.providers._http import UA
 
 ARM = "https://arm.haglund.dev/api/v2/ids"
 ANIZIP = "https://api.ani.zip/mappings"
-
-MEDIA_QUERY = (
-    "query($id:Int){Media(id:$id,type:ANIME){id idMal title{english romaji native} "
-    "status format episodes seasonYear startDate{year} synonyms "
-    "nextAiringEpisode{episode airingAt timeUntilAiring}}}"
-)
-
-_STATUS = {"RELEASING": "RELEASING", "FINISHED": "FINISHED",
-            "NOT_YET_RELEASED": "NOT_YET_RELEASED", "CANCELLED": "FINISHED",
-            "HIATUS": "HIATUS"}
-
-
-async def _fetch_arm(anilist_id: int):
-    try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            res = await client.get(
-                f"{ARM}?source=anilist&id={anilist_id}",
-                headers={"User-Agent": UA, "Accept": "application/json"},
-            )
-        if res.status_code != 200:
-            return None
-        return res.json()
-    except Exception:
-        return None
-
-
-import asyncio
-import httpx
-
-from src.extractor import anilist_query
-from src.providers import _cache
-from src.providers._http import UA
-
-ARM = "https://arm.haglund.dev/api/v2/ids"
-ANIZIP = "https://api.ani.zip/mappings"
 KITSU = "https://kitsu.io/api/edge"
 
 MEDIA_QUERY = (
@@ -81,7 +46,7 @@ async def _fetch_anilist(anilist_id: int):
 
 
 async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
-    """Fallback identity when AniList is down. Prefer MAL id from ARM, else text is not used here."""
+    """Fallback identity when AniList is down. Prefer MAL id from ARM."""
     try:
         mal = (arm or {}).get("myanimelist")
         async with httpx.AsyncClient(timeout=12.0) as client:
@@ -130,7 +95,6 @@ async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
                                 "arm": arm or {},
                                 "_source": "kitsu",
                             }
-            # Last resort: Kitsu by AniList mapping if present
             res = await client.get(
                 f"{KITSU}/mappings",
                 params={
@@ -181,7 +145,6 @@ async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
 
 
 def _stub_media(anilist_id: int, arm: dict | None = None) -> dict:
-    """Minimal media so title-search providers can still run if caller also passes titles later."""
     return {
         "id": int(anilist_id),
         "idMal": (arm or {}).get("myanimelist"),
@@ -229,7 +192,6 @@ async def get_media(anilist_id: int) -> dict:
         _cache.set(key, media, _cache.MAPPING_TTL)
         return media
 
-    # AniList failed → Kitsu (by MAL from ARM, or AniList mapping)
     kitsu = await _fetch_kitsu(anilist_id, arm)
     if kitsu and (
         (kitsu.get("title") or {}).get("english")
@@ -239,34 +201,9 @@ async def get_media(anilist_id: int) -> dict:
         _cache.set(key, kitsu, _cache.MAPPING_TTL)
         return kitsu
 
-    # Still nothing: stub (providers need titles from client or prior cache)
     media = _stub_media(anilist_id, arm)
-    # Do NOT cache empty stubs for long — short TTL so recovery is quick
     _cache.set(key, media, 60)
     return media
-
-
-async def get_anizip(anilist_id: int):
-    try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            res = await client.get(
-                f"{ANIZIP}?anilist_id={anilist_id}",
-                headers={"User-Agent": UA, "Accept": "application/json"},
-            )
-        if res.status_code != 200:
-            return None
-        return res.json()
-    except Exception:
-        return None
-
-
-async def build_ctx(anilist_id: int, media: dict | None = None) -> dict:
-    media = media or await get_media(anilist_id)
-    try:
-        anizip = await get_anizip(anilist_id)
-    except Exception:
-        anizip = None
-    return {"media": media, "anizip": anizip}
 
 
 async def get_anizip(anilist_id: int):
