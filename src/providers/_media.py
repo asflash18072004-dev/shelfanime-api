@@ -1,3 +1,4 @@
+import asyncio
 import httpx
 
 from src.extractor import anilist_query
@@ -46,7 +47,6 @@ async def _fetch_anilist(anilist_id: int):
 
 
 async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
-    """Fallback identity when AniList is down. Prefer MAL id from ARM."""
     try:
         mal = (arm or {}).get("myanimelist")
         async with httpx.AsyncClient(timeout=12.0) as client:
@@ -62,8 +62,7 @@ async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
                 )
                 if res.status_code == 200:
                     body = res.json() or {}
-                    included = body.get("included") or []
-                    for inc in included:
+                    for inc in (body.get("included") or []):
                         if (inc or {}).get("type") == "anime":
                             attrs = (inc or {}).get("attributes") or {}
                             titles = attrs.get("titles") or {}
@@ -81,17 +80,12 @@ async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
                                 "seasonYear": None,
                                 "startDate": None,
                                 "nextAiringEpisode": None,
-                                "synonyms": list(
-                                    filter(
-                                        None,
-                                        [
-                                            attrs.get("canonicalTitle"),
-                                            titles.get("en"),
-                                            titles.get("en_jp"),
-                                            titles.get("ja_jp"),
-                                        ],
-                                    )
-                                ),
+                                "synonyms": list(filter(None, [
+                                    attrs.get("canonicalTitle"),
+                                    titles.get("en"),
+                                    titles.get("en_jp"),
+                                    titles.get("ja_jp"),
+                                ])),
                                 "arm": arm or {},
                                 "_source": "kitsu",
                             }
@@ -107,8 +101,7 @@ async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
             if res.status_code != 200:
                 return None
             body = res.json() or {}
-            included = body.get("included") or []
-            for inc in included:
+            for inc in (body.get("included") or []):
                 if (inc or {}).get("type") == "anime":
                     attrs = (inc or {}).get("attributes") or {}
                     titles = attrs.get("titles") or {}
@@ -126,16 +119,11 @@ async def _fetch_kitsu(anilist_id: int, arm: dict | None = None):
                         "seasonYear": None,
                         "startDate": None,
                         "nextAiringEpisode": None,
-                        "synonyms": list(
-                            filter(
-                                None,
-                                [
-                                    attrs.get("canonicalTitle"),
-                                    titles.get("en"),
-                                    titles.get("en_jp"),
-                                ],
-                            )
-                        ),
+                        "synonyms": list(filter(None, [
+                            attrs.get("canonicalTitle"),
+                            titles.get("en"),
+                            titles.get("en_jp"),
+                        ])),
                         "arm": arm or {},
                         "_source": "kitsu",
                     }
@@ -167,8 +155,10 @@ async def get_media(anilist_id: int) -> dict:
     if hit is not None:
         return hit
 
-    arm = await _fetch_arm(anilist_id)
-    al = await _fetch_anilist(anilist_id)
+    arm, al = await asyncio.gather(
+        _fetch_arm(anilist_id),
+        _fetch_anilist(anilist_id),
+    )
 
     if al:
         media = {
